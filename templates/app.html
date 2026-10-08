@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Inventory & Billing</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root { --ink:#14313b; --ink2:#1d4350; --paper:#f3f6f5; --teal:#1f8a70; --amber:#d98e04; --red:#c0392b; }
+  body { font-family:'Manrope',system-ui,sans-serif; background:var(--paper); color:#1b2a2f; }
+  .side { background:var(--ink); min-height:100vh; width:220px; position:fixed; top:0; left:0; padding:20px 12px; }
+  .side h1 { color:#fff; font-size:1.05rem; font-weight:800; padding:0 10px 18px; line-height:1.25; }
+  .side a { display:block; color:#b8cdd3; text-decoration:none; padding:9px 12px; border-radius:8px; font-weight:500; cursor:pointer; }
+  .side a:hover { background:var(--ink2); color:#fff; }
+  .side a.on { background:var(--teal); color:#fff; }
+  .side .who { position:absolute; bottom:18px; left:22px; right:22px; color:#b8cdd3; font-size:.85rem; }
+  main { margin-left:220px; padding:28px 32px; }
+  .stat { background:#fff; border-radius:10px; padding:16px 18px; border-left:5px solid var(--teal); }
+  .stat.warn { border-color:var(--amber); } .stat.bad { border-color:var(--red); }
+  .stat b { font-size:1.7rem; font-weight:800; display:block; }
+  .panel { background:#fff; border-radius:10px; padding:18px; }
+  .table th { font-weight:700; color:#4a6068; font-size:.85rem; }
+  .btn-teal { background:var(--teal); color:#fff; border:0; } .btn-teal:hover { background:#17715b; color:#fff; }
+  #login { max-width:380px; margin:12vh auto; }
+  @media (max-width:800px){ .side{position:static;width:100%;min-height:0;display:flex;flex-wrap:wrap;gap:4px;padding:10px}.side h1,.side .who{display:none} main{margin:0;padding:16px} }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login" class="panel d-none">
+  <h4 class="fw-bold mb-1">Smart Inventory & Billing</h4>
+  <p class="text-muted small">Sign in to manage your shop.</p>
+  <input id="em" class="form-control mb-2" placeholder="Email" value="admin@example.com">
+  <input id="pw" type="password" class="form-control mb-2" placeholder="Password" value="admin123">
+  <div id="lerr" class="text-danger small mb-2"></div>
+  <button class="btn btn-teal w-100" onclick="doLogin()">Sign in</button>
+</div>
+
+<!-- APP -->
+<div id="shell" class="d-none">
+  <nav class="side">
+    <h1>Smart Inventory<br>& Billing</h1>
+    <a data-v="dashboard">Dashboard</a><a data-v="products">Products</a><a data-v="inventory">Inventory</a>
+    <a data-v="billing">New bill</a><a data-v="sales">Sales</a><a data-v="customers">Customers</a>
+    <a onclick="doLogout()">Sign out</a>
+    <div class="who" id="who"></div>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<!-- product modal -->
+<div class="modal fade" id="pm" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="pmt">Add product</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body row g-2">
+    <div class="col-12"><label class="form-label small">Name</label><input id="p_name" class="form-control"></div>
+    <div class="col-6"><label class="form-label small">Category</label><input id="p_cat" class="form-control" list="cats"><datalist id="cats"></datalist></div>
+    <div class="col-6"><label class="form-label small">Supplier</label><input id="p_sup" class="form-control"></div>
+    <div class="col-4"><label class="form-label small">Price (₹)</label><input id="p_price" type="number" min="0" step="0.01" class="form-control"></div>
+    <div class="col-4"><label class="form-label small">Quantity</label><input id="p_qty" type="number" min="0" class="form-control"></div>
+    <div class="col-4"><label class="form-label small">Low-stock limit</label><input id="p_lim" type="number" min="0" class="form-control" value="10"></div>
+    <div class="col-12 text-danger small" id="p_err"></div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-teal" onclick="saveProduct()">Save product</button></div>
+</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const inr = n => '₹' + Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2});
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let chart, editId = null, cart = [], pm;
+
+async function api(url, method = 'GET', body) {
+  const r = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: body ? JSON.stringify(body) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && url !== '/api/login') { showLogin(); throw new Error('login'); }
+  if (!r.ok) throw new Error(j.error || 'Something went wrong.');
+  return j;
+}
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { if (e.message !== 'login') alert(e.message); } };
+
+/* ---------- auth ---------- */
+function showLogin() { $('#shell').classList.add('d-none'); $('#login').classList.remove('d-none'); }
+async function doLogin() {
+  try {
+    const r = await api('/api/login', 'POST', {email: $('#em').value, password: $('#pw').value});
+    start(r.name);
+  } catch (e) { $('#lerr').textContent = e.message; }
+}
+async function doLogout() { await api('/api/logout', 'POST'); showLogin(); }
+function start(name) {
+  $('#login').classList.add('d-none'); $('#shell').classList.remove('d-none');
+  $('#who').textContent = 'Signed in as ' + name; go('dashboard');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && !$('#login').classList.contains('d-none')) doLogin(); });
+
+/* ---------- router ---------- */
+const views = {dashboard, products, inventory, billing, sales, customers};
+function go(v) {
+  document.querySelectorAll('.side a[data-v]').forEach(a => a.classList.toggle('on', a.dataset.v === v));
+  guard(views[v])();
+}
+document.querySelectorAll('.side a[data-v]').forEach(a => a.onclick = () => go(a.dataset.v));
+
+const statusBadge = p => p.quantity === 0 ? '<span class="badge bg-danger">Out of stock</span>'
+  : p.quantity <= p.low_stock_limit ? '<span class="badge bg-warning text-dark">Low stock</span>'
+  : '<span class="badge bg-success">In stock</span>';
+
+/* ---------- dashboard ---------- */
+async function dashboard() {
+  const d = await api('/api/dashboard');
+  $('#view').innerHTML = `<h3 class="fw-bold mb-3">Dashboard</h3>
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-lg"><div class="stat"><b>${d.total_products}</b>Products</div></div>
+    <div class="col-6 col-lg"><div class="stat warn"><b>${d.low_stock}</b>Low stock</div></div>
+    <div class="col-6 col-lg"><div class="stat bad"><b>${d.out_of_stock}</b>Out of stock</div></div>
+    <div class="col-6 col-lg"><div class="stat"><b>${inr(d.today_sales)}</b>Today's sales</div></div>
+    <div class="col-6 col-lg"><div class="stat"><b>${d.total_orders}</b>Total orders</div></div>
+  </div>
+  <div class="row g-3">
+    <div class="col-lg-7"><div class="panel"><h6 class="fw-bold">Sales, last 7 days</h6><canvas id="c1" height="140"></canvas></div></div>
+    <div class="col-lg-5"><div class="panel"><h6 class="fw-bold">Best sellers</h6><canvas id="c2" height="200"></canvas>
+      ${d.top.length ? '' : '<p class="text-muted small mt-2">Make your first bill to see best sellers here.</p>'}</div></div>
+  </div>`;
+  new Chart($('#c1'), {type: 'bar', data: {labels: Object.keys(d.daily).map(x => x.slice(5)), datasets: [{label: 'Sales (₹)', data: Object.values(d.daily), backgroundColor: '#1f8a70'}]}, options: {plugins: {legend: {display: false}}}});
+  new Chart($('#c2'), {type: 'bar', data: {labels: d.top.map(t => t[0]), datasets: [{label: 'Units sold', data: d.top.map(t => t[1]), backgroundColor: '#14313b'}]}, options: {indexAxis: 'y', plugins: {legend: {display: false}}}});
+}
+
+/* ---------- products ---------- */
+let allProducts = [];
+async function products() {
+  allProducts = await api('/api/products');
+  $('#view').innerHTML = `<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="fw-bold m-0">Products</h3>
+    <div class="d-flex gap-2"><input id="q" class="form-control" placeholder="Search products" oninput="drawProducts()">
+    <button class="btn btn-teal text-nowrap" onclick="openProduct()">Add product</button></div></div>
+    <div class="panel table-responsive"><table class="table align-middle m-0"><thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Qty</th><th>Status</th><th>Supplier</th><th></th></tr></thead><tbody id="pb"></tbody></table></div>`;
+  drawProducts();
+}
+function drawProducts() {
+  const q = ($('#q')?.value || '').toLowerCase();
+  const rows = allProducts.filter(p => (p.name + p.category).toLowerCase().includes(q));
+  $('#pb').innerHTML = rows.map(p => `<tr><td>${esc(p.name)}</td><td>${esc(p.category)}</td><td>${inr(p.price)}</td><td>${p.quantity}</td>
+    <td>${statusBadge(p)}</td><td>${esc(p.supplier)}</td>
+    <td class="text-end text-nowrap"><button class="btn btn-sm btn-outline-secondary" onclick="openProduct(${p.id})">Edit</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="delProduct(${p.id})">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan="7" class="text-muted">No products yet. Click "Add product" to create one.</td></tr>';
+}
+function openProduct(id) {
+  pm = pm || new bootstrap.Modal('#pm');
+  editId = id || null;
+  const p = allProducts.find(x => x.id === id) || {name: '', category: '', supplier: '', price: '', quantity: '', low_stock_limit: 10};
+  $('#pmt').textContent = id ? 'Edit product' : 'Add product';
+  $('#p_name').value = p.name; $('#p_cat').value = p.category; $('#p_sup').value = p.supplier;
+  $('#p_price').value = p.price; $('#p_qty').value = p.quantity; $('#p_lim').value = p.low_stock_limit; $('#p_err').textContent = '';
+  $('#cats').innerHTML = [...new Set(allProducts.map(x => x.category))].map(c => `<option value="${esc(c)}">`).join('');
+  pm.show();
+}
+async function saveProduct() {
+  const body = {name: $('#p_name').value, category: $('#p_cat').value, supplier: $('#p_sup').value,
+    price: $('#p_price').value, quantity: $('#p_qty').value, low_stock_limit: $('#p_lim').value};
+  try { await api(editId ? '/api/products/' + editId : '/api/products', editId ? 'PUT' : 'POST', body); pm.hide(); products(); }
+  catch (e) { $('#p_err').textContent = e.message; }
+}
+const delProduct = guard(async id => { if (confirm('Delete this product?')) { await api('/api/products/' + id, 'DELETE'); products(); } });
+
+/* ---------- inventory ---------- */
+async function inventory() {
+  const list = await api('/api/products');
+  const need = list.filter(p => p.quantity <= p.low_stock_limit).sort((a, b) => a.quantity - b.quantity);
+  $('#view').innerHTML = `<h3 class="fw-bold mb-3">Inventory</h3>
+  <div class="panel mb-4"><h6 class="fw-bold">Needs restocking (${need.length})</h6>
+  <table class="table align-middle m-0"><tbody>${need.map(p => `<tr><td>${esc(p.name)}</td><td>${p.quantity} left (limit ${p.low_stock_limit})</td><td>${statusBadge(p)}</td>
+    <td class="text-end"><button class="btn btn-sm btn-teal" onclick="addStock(${p.id})">Add stock</button></td></tr>`).join('')
+    || '<tr><td class="text-muted">Everything is above its low-stock limit.</td></tr>'}</tbody></table></div>
+  <div class="panel table-responsive"><h6 class="fw-bold">All stock</h6><table class="table align-middle m-0"><thead><tr><th>Product</th><th>Qty</th><th>Stock value</th><th></th></tr></thead><tbody>
+  ${list.map(p => `<tr><td>${esc(p.name)}</td><td>${p.quantity}</td><td>${inr(p.quantity * p.price)}</td>
+    <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="addStock(${p.id})">Adjust</button></td></tr>`).join('')}</tbody></table></div>`;
+}
+const addStock = guard(async id => {
+  const v = prompt('Enter units to add (use a negative number to remove):');
+  if (v === null || v.trim() === '') return;
+  await api(`/api/products/${id}/stock`, 'POST', {delta: parseInt(v, 10)}); inventory();
+});
+
+/* ---------- billing ---------- */
+async function billing() {
+  const [prods, custs] = await Promise.all([api('/api/products'), api('/api/customers')]);
+  window._bp = prods.filter(p => p.quantity > 0); cart = [];
+  $('#view').innerHTML = `<h3 class="fw-bold mb-3">New bill</h3><div class="row g-3">
+  <div class="col-lg-5"><div class="panel">
+    <label class="form-label small">Customer</label>
+    <select id="b_c" class="form-select mb-3"><option value="">Walk-in customer</option>${custs.map(c => `<option value="${c.id}">${esc(c.name)} (${esc(c.phone)})</option>`).join('')}</select>
+    <label class="form-label small">Product</label>
+    <select id="b_p" class="form-select mb-2">${_bp.map(p => `<option value="${p.id}">${esc(p.name)} - ${inr(p.price)} (${p.quantity} in stock)</option>`).join('')}</select>
+    <div class="d-flex gap-2"><input id="b_q" type="number" min="1" value="1" class="form-control" style="max-width:100px">
+    <button class="btn btn-teal" onclick="addToCart()">Add to bill</button></div></div></div>
+  <div class="col-lg-7"><div class="panel"><table class="table align-middle"><thead><tr><th>Item</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead><tbody id="cartb"></tbody></table>
+    <div class="d-flex justify-content-between align-items-center"><h4 class="fw-bold m-0" id="tot"></h4>
+    <button class="btn btn-teal" onclick="checkout()">Generate bill</button></div></div></div></div>`;
+  drawCart();
+}
+function addToCart() {
+  const p = _bp.find(x => x.id == $('#b_p').value); const q = parseInt($('#b_q').value, 10);
+  if (!p || !(q > 0)) return alert('Choose a product and a quantity of at least 1.');
+  const line = cart.find(l => l.id === p.id); const have = line ? line.quantity : 0;
+  if (have + q > p.quantity) return alert(`Only ${p.quantity} of ${p.name} in stock.`);
+  line ? line.quantity += q : cart.push({id: p.id, name: p.name, price: p.price, quantity: q});
+  drawCart();
+}
+function drawCart() {
+  $('#cartb').innerHTML = cart.map((l, i) => `<tr><td>${esc(l.name)}</td><td>${l.quantity} × ${inr(l.price)}</td><td>${inr(l.quantity * l.price)}</td>
+    <td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="cart.splice(${i},1);drawCart()">Remove</button></td></tr>`).join('')
+    || '<tr><td colspan="4" class="text-muted">No items yet. Pick a product and click "Add to bill".</td></tr>';
+  $('#tot').textContent = 'Total ' + inr(cart.reduce((s, l) => s + l.quantity * l.price, 0));
+}
+const checkout = guard(async () => {
+  const sale = await api('/api/sales', 'POST', {customer_id: $('#b_c').value || null, items: cart.map(l => ({product_id: l.id, quantity: l.quantity}))});
+  window.open(`/api/sales/${sale.id}/invoice`, '_blank'); billing();
+});
+
+/* ---------- sales ---------- */
+async function sales() {
+  const list = await api('/api/sales');
+  $('#view').innerHTML = `<h3 class="fw-bold mb-3">Sales</h3><div class="panel table-responsive"><table class="table align-middle m-0">
+  <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th></th></tr></thead><tbody>
+  ${list.map(s => `<tr><td>${s.invoice_number}</td><td>${s.sale_date}</td><td>${esc(s.customer)}</td>
+    <td>${s.items.map(i => esc(i.name) + ' × ' + i.quantity).join(', ')}</td><td>${inr(s.total_amount)}</td>
+    <td class="text-end"><a class="btn btn-sm btn-outline-secondary" target="_blank" href="/api/sales/${s.id}/invoice">Invoice PDF</a></td></tr>`).join('')
+    || '<tr><td colspan="6" class="text-muted">No sales yet. Create a bill from "New bill".</td></tr>'}</tbody></table></div>`;
+}
+
+/* ---------- customers ---------- */
+async function customers() {
+  const list = await api('/api/customers');
+  $('#view').innerHTML = `<h3 class="fw-bold mb-3">Customers</h3>
+  <div class="panel mb-3"><div class="row g-2"><div class="col-md-5"><input id="c_n" class="form-control" placeholder="Name"></div>
+  <div class="col-md-4"><input id="c_p" class="form-control" placeholder="Phone"></div>
+  <div class="col-md-3"><button class="btn btn-teal w-100" onclick="addCustomer()">Add customer</button></div></div></div>
+  <div class="panel"><table class="table align-middle m-0"><thead><tr><th>Name</th><th>Phone</th><th></th></tr></thead><tbody>
+  ${list.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.phone)}</td><td class="text-end"><button class="btn btn-sm btn-outline-danger" onclick="delCustomer(${c.id})">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan="3" class="text-muted">No customers yet.</td></tr>'}</tbody></table></div>`;
+}
+const addCustomer = guard(async () => { await api('/api/customers', 'POST', {name: $('#c_n').value, phone: $('#c_p').value}); customers(); });
+const delCustomer = guard(async id => { if (confirm('Delete this customer?')) { await api('/api/customers/' + id, 'DELETE'); customers(); } });
+
+/* ---------- boot ---------- */
+fetch('/api/me').then(r => r.ok ? r.json().then(j => start(j.name)) : showLogin());
+</script>
+</body>
+</html>

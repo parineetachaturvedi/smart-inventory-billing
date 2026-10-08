@@ -1,0 +1,118 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Admin",
+      "email": "admin@example.com",
+      "password": "scrypt:32768:8:1$MhPfhtl4s6oMOJ30$715a9c54a6a2bbcd7894e88673d95a4d84f775fe557efa969653ea2fd3741dc2fdb1d73a8e2b9a3d95c1d7306f9207b1afc8ed4f807bf26f1c27c9bd754a6ffa",
+      "role": "admin"
+    }
+  ],
+  "categories": [
+    "Stationery",
+    "Grocery"
+  ],
+  "products": [
+    {
+      "id": 101,
+      "name": "Classmate Notebook",
+      "category": "Stationery",
+      "price": 60,
+      "quantity": 44,
+      "low_stock_limit": 10,
+      "supplier": "ABC Suppliers",
+      "created_at": "2026-10-07"
+    },
+    {
+      "id": 102,
+      "name": "Blue Gel Pen",
+      "category": "Stationery",
+      "price": 10,
+      "quantity": 61,
+      "low_stock_limit": 15,
+      "supplier": "ABC Suppliers",
+      "created_at": "2026-10-07"
+    },
+    {
+      "id": 103,
+      "name": "Parle-G Biscuit",
+      "category": "Grocery",
+      "price": 10,
+      "quantity": 299,
+      "low_stock_limit": 20,
+      "supplier": "Fresh Traders",
+      "created_at": "2026-10-07"
+    },
+    {
+      "id": 104,
+      "name": "Basmati Rice 1kg",
+      "category": "Grocery",
+      "price": 110,
+      "quantity": 29,
+      "low_stock_limit": 10,
+      "supplier": "Fresh Traders",
+      "created_at": "2026-10-07"
+    },
+    {
+      "name": "pencil",
+      "category": "Stationery",
+      "price": 10.0,
+      "quantity": 25,
+      "low_stock_limit": 5,
+      "supplier": "rohit mehera",
+      "id": 105,
+      "created_at": "2026-10-07"
+    }
+  ],
+  "customers": [
+    {
+      "id": 201,
+      "name": "Rahul",
+      "phone": "9876543210"
+    }
+  ],
+  "sales": [
+    {
+      "id": 301,
+      "invoice_number": "INV-0001",
+      "customer_id": null,
+      "total_amount": 190,
+      "sale_date": "2026-10-07",
+      "created_at": "23:30"
+    }
+  ],
+  "sale_items": [
+    {
+      "sale_id": 301,
+      "product_id": 101,
+      "name": "Classmate Notebook",
+      "quantity": 1,
+      "price": 60,
+      "subtotal": 60
+    },
+    {
+      "sale_id": 301,
+      "product_id": 102,
+      "name": "Blue Gel Pen",
+      "quantity": 1,
+      "price": 10,
+      "subtotal": 10
+    },
+    {
+      "sale_id": 301,
+      "product_id": 103,
+      "name": "Parle-G Biscuit",
+      "quantity": 1,
+      "price": 10,
+      "subtotal": 10
+    },
+    {
+      "sale_id": 301,
+      "product_id": 104,
+      "name": "Basmati Rice 1kg",
+      "quantity": 1,
+      "price": 110,
+      "subtotal": 110
+    }
+  ]
+}
